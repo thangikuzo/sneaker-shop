@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // [MỚI] Import để lưu data user
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -10,38 +11,37 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool isLogin = true;
+  bool isLogin = true; // Trạng thái đang là Login hay Register
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // 1. Thêm các biến để lưu lỗi riêng cho từng ô
+  // Biến lưu lỗi hiển thị lên UI
   String? _emailError;
   String? _passwordError;
-  String? _generalError; // Lỗi chung (ví dụ: sai mật khẩu)
+  String? _generalError;
 
   bool isLoading = false;
 
-  // 2. Hàm kiểm tra dữ liệu đầu vào
+  // 1. Hàm kiểm tra dữ liệu đầu vào (Validation)
   bool _validateInput() {
     bool isValid = true;
     setState(() {
-      // Reset lỗi trước khi kiểm tra
       _emailError = null;
       _passwordError = null;
       _generalError = null;
 
-      // Kiểm tra Email
+      // Validate Email
       if (_emailController.text.trim().isEmpty) {
-        _emailError = "Vui lòng nhập Email"; // Hiện dòng đỏ
+        _emailError = "Vui lòng nhập Email";
         isValid = false;
       } else if (!_emailController.text.contains("@")) {
         _emailError = "Email không hợp lệ";
         isValid = false;
       }
 
-      // Kiểm tra Password
+      // Validate Password
       if (_passwordController.text.trim().isEmpty) {
-        _passwordError = "Vui lòng nhập Mật khẩu"; // Hiện dòng đỏ
+        _passwordError = "Vui lòng nhập Mật khẩu";
         isValid = false;
       } else if (_passwordController.text.length < 6) {
         _passwordError = "Mật khẩu phải trên 6 ký tự";
@@ -51,46 +51,63 @@ class _LoginScreenState extends State<LoginScreen> {
     return isValid;
   }
 
+  // 2. Hàm xử lý Submit
   Future<void> _submit() async {
-    // Gọi hàm kiểm tra, nếu có lỗi thì dừng lại luôn, không gửi lên Firebase
-    if (!_validateInput()) {
-      return;
-    }
+    // Nếu validate sai thì dừng ngay
+    if (!_validateInput()) return;
 
     setState(() { isLoading = true; });
 
     try {
       if (isLogin) {
+        // --- LOGIC ĐĂNG NHẬP ---
         await AuthService().signIn(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
+        // Đăng nhập thành công -> Stream trong main.dart sẽ tự chuyển màn hình
       } else {
+        // --- LOGIC ĐĂNG KÝ ---
         await AuthService().signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
+
+        // [QUAN TRỌNG] Tạo User Document trên Firestore ngay khi đăng ký
+        // Để sau này vào Profile hoặc check quyền Admin không bị lỗi
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'email': _emailController.text.trim(),
+            'role': 'user', // Mặc định là user thường
+            'createdAt': Timestamp.now(),
+            'fullName': '', // Để trống để update sau bên Profile
+            'phone': '',
+            'address': '',
+            'avatar': '',
+          });
+        }
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
-        // In ra mã lỗi để bạn dễ debug
-        print("Firebase Error Code: ${e.code}");
+        print("Firebase Auth Error: ${e.code}"); // Log để debug
 
         if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
-          // Gộp chung lỗi để hacker không dò được thông tin
           _generalError = "Sai Email hoặc Mật khẩu.";
         } else if (e.code == 'email-already-in-use') {
           _generalError = "Email này đã được đăng ký.";
         } else if (e.code == 'invalid-email') {
           _generalError = "Định dạng Email không hợp lệ.";
+        } else if (e.code == 'weak-password') {
+          _generalError = "Mật khẩu quá yếu.";
         } else {
-          _generalError = "Lỗi: ${e.message}"; // Các lỗi khác
+          _generalError = "Lỗi đăng nhập: ${e.message}";
         }
       });
     } catch (e) {
-      setState(() { _generalError = "Đã xảy ra lỗi không xác định."; });
+      setState(() { _generalError = "Đã xảy ra lỗi không xác định. Vui lòng thử lại."; });
     } finally {
-      setState(() { isLoading = false; });
+      if (mounted) setState(() { isLoading = false; });
     }
   }
 
@@ -99,103 +116,123 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView( // Thêm cái này để không bị che phím
-          padding: const EdgeInsets.all(25.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 40),
-              const Icon(Icons.lock_outline, size: 80, color: Colors.black),
-              const SizedBox(height: 20),
-              Text(
-                isLogin ? "Welcome Back!" : "Create Account",
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
-
-              // --- Ô EMAIL ---
-              TextField(
-                controller: _emailController,
-                decoration: InputDecoration(
-                  labelText: "Email",
-                  // Hiển thị lỗi đỏ ở đây
-                  errorText: _emailError,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
-                  prefixIcon: const Icon(Icons.email_outlined),
+        child: Center( // Center để căn giữa theo chiều dọc nếu màn hình lớn
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(25.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline, size: 80, color: Colors.black),
+                const SizedBox(height: 20),
+                Text(
+                  isLogin ? "Welcome Back!" : "Create Account",
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
-              ),
-              const SizedBox(height: 15),
+                const SizedBox(height: 40),
 
-              // --- Ô PASSWORD ---
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: "Password",
-                  // Hiển thị lỗi
-                  errorText: _passwordError,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
-                  prefixIcon: const Icon(Icons.lock_outline),
+                // --- Ô EMAIL ---
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress, // Bàn phím email
+                  decoration: InputDecoration(
+                    labelText: "Email",
+                    errorText: _emailError, // Hiển thị lỗi nếu có
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                    prefixIcon: const Icon(Icons.email_outlined),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 15),
 
-              // Hiển thị lỗi chung (nếu có)
-              if (_generalError != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 15),
-                  child: Text(
-                    _generalError!,
-                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
+                // --- Ô PASSWORD ---
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: "Password",
+                    errorText: _passwordError, // Hiển thị lỗi nếu có
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                    prefixIcon: const Icon(Icons.lock_outline),
                   ),
                 ),
 
-              const SizedBox(height: 25),
-
-              SizedBox(
-                width: double.infinity,
-                height: 55,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                  ),
-                  child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                    isLogin ? "LOG IN" : "SIGN UP",
-                    style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(isLogin ? "New member? " : "Have an account? "),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        isLogin = !isLogin;
-                        // Xóa sạch lỗi khi chuyển đổi màn hình
-                        _emailError = null;
-                        _passwordError = null;
-                        _generalError = null;
-                        _emailController.clear();
-                        _passwordController.clear();
-                      });
-                    },
-                    child: Text(
-                      isLogin ? "Register now" : "Log in",
-                      style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                // --- HIỂN THỊ LỖI CHUNG (TỪ FIREBASE) ---
+                if (_generalError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 15),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _generalError!,
+                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ],
+
+                const SizedBox(height: 25),
+
+                // --- NÚT SUBMIT ---
+                SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      disabledBackgroundColor: Colors.grey,
+                    ),
+                    child: isLoading
+                        ? const SizedBox(
+                        width: 24, height: 24,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                    )
+                        : Text(
+                      isLogin ? "LOG IN" : "SIGN UP",
+                      style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // --- CHUYỂN ĐỔI LOGIN / SIGNUP ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(isLogin ? "New member? " : "Have an account? "),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          isLogin = !isLogin;
+                          // Reset form khi chuyển tab
+                          _emailError = null;
+                          _passwordError = null;
+                          _generalError = null;
+                          _emailController.clear();
+                          _passwordController.clear();
+                        });
+                      },
+                      child: Text(
+                        isLogin ? "Register now" : "Log in",
+                        style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

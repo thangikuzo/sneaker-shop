@@ -3,9 +3,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 
+
 import 'screens/login_screen.dart';
 import 'screens/main_screen.dart';
-import 'providers/cart_provider.dart'; // ✅ thêm
+import 'providers/cart_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
