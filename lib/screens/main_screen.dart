@@ -5,8 +5,8 @@ import 'favorite_screen.dart';
 import 'profile_screen.dart';
 import 'widgets/bottom_bar.dart'; // Đảm bảo đường dẫn import đúng thư mục widget của bạn
 import 'widgets/main_drawer.dart'; // Đảm bảo đường dẫn import đúng
-
-
+import 'chat_screen.dart';
+import 'cart_screen.dart';
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -30,8 +30,8 @@ class _MainScreenState extends State<MainScreen> {
 
       FavoriteScreen(onBackToHome: () => _onTabChange(0)),                   // Tab 1
 
-      const Center(child: Text("Search")),                                   // Tab 2
-      const Center(child: Text("Cart")),                                     // Tab 3
+      const ChatBotScreen(),                                   // Tab 2
+      const CartScreen(),                        // Tab 3
       ProfileScreen(onBackToHome: () => _onTabChange(0)),                    // Tab 4
     ];
 

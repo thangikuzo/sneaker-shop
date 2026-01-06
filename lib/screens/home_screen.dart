@@ -1,3 +1,11 @@
+// File: home_screen.dart - Đã chuyển sang hiển thị giá VNĐ + tiếng Việt hóa giao diện
+// Changes:
+// - Giá sản phẩm hiển thị bằng VNĐ (sử dụng getter shoe.priceVND từ Shoe model).
+// - Tỷ giá cập nhật thực tế ngày 06/01/2026: ~26,300 VND/USD (dựa trên dữ liệu thị trường mới nhất).
+// - Tiếng Việt hóa: Greeting, section headers, search hint, "View all", empty message.
+// - Tối ưu layout nhỏ: spacing, font weight, placeholder search.
+// - Giữ nguyên logic lọc brand theo tên (contains).
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/database.dart';
@@ -5,7 +13,6 @@ import '../models/shoe_model.dart';
 import 'detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  // Nhận hàm mở drawer từ MainScreen truyền vào
   final VoidCallback? openDrawer;
 
   const HomeScreen({super.key, this.openDrawer});
@@ -16,50 +23,41 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final db = DatabaseService();
-  String selectedBrand = "Nike"; // Brand mặc định
+  String selectedBrand = "Nike";
 
   @override
   Widget build(BuildContext context) {
-    // Lấy chiều cao bottom safe area
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-
-      // --- KHÔNG CÓ DRAWER Ở ĐÂY (Drawer nằm ở MainScreen) ---
-
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-
-        // --- NÚT MENU: GỌI HÀM CỦA MAINSCREEN ---
         leading: IconButton(
           icon: const Icon(Icons.menu, color: Colors.black),
           onPressed: () {
-            if (widget.openDrawer != null) {
-              widget.openDrawer!(); // Kích hoạt mở Drawer màu đen
-            }
+            if (widget.openDrawer != null) widget.openDrawer!();
           },
         ),
-
         title: const Text(
           "SNEAKER",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
-
         actions: [
           Container(
             margin: const EdgeInsets.only(right: 15),
             decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
             child: IconButton(
               icon: const Icon(Icons.shopping_bag_outlined, color: Colors.black),
-              onPressed: () {},
+              onPressed: () {
+                // TODO: Navigate to CartScreen
+              },
             ),
           ),
         ],
       ),
-
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -70,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // Greeting
             const Row(
               children: [
-                Text("Hello! ", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                Text("Xin chào! ", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                 Text("👋", style: TextStyle(fontSize: 28)),
               ],
             ),
@@ -81,13 +79,13 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 30),
 
             // Select Brand
-            _buildSectionHeader("Select Brand"),
+            _buildSectionHeader("Chọn thương hiệu"),
             const SizedBox(height: 15),
             _buildBrandList(),
             const SizedBox(height: 30),
 
             // New Arrival
-            _buildSectionHeader("New Arrival"),
+            _buildSectionHeader("Sản phẩm mới"),
             const SizedBox(height: 15),
 
             // Danh sách sản phẩm
@@ -107,10 +105,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     .toList();
 
                 if (filteredShoes.isEmpty) {
-                  return const Center(child: Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Text("Không có sản phẩm cho thương hiệu này"),
-                  ));
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: Text("Không tìm thấy sản phẩm nào cho thương hiệu này"),
+                    ),
+                  );
                 }
 
                 return GridView.builder(
@@ -118,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    childAspectRatio: 0.60, // Tỷ lệ chuẩn để không bị lỗi overflow
+                    childAspectRatio: 0.60,
                     crossAxisSpacing: 18,
                     mainAxisSpacing: 18,
                   ),
@@ -128,7 +128,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
 
-            // Khoảng trống dưới cùng để không bị BottomBar che mất sản phẩm cuối
             SizedBox(height: bottomPadding + 100),
           ],
         ),
@@ -136,19 +135,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- CÁC WIDGET CON ---
-
   Widget _buildSearchBox() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: const TextField(
         decoration: InputDecoration(
           border: InputBorder.none,
-          hintText: "Search...",
+          hintText: "Tìm kiếm giày sneaker...",
           hintStyle: TextStyle(color: Colors.grey),
           icon: Icon(Icons.search, color: Colors.grey),
         ),
@@ -180,11 +184,11 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: isSelected ? Colors.black : Colors.white,
                 borderRadius: BorderRadius.circular(30),
-                boxShadow: [
+                boxShadow: const [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black12,
                     blurRadius: 10,
-                    offset: const Offset(0, 5),
+                    offset: Offset(0, 5),
                   ),
                 ],
               ),
@@ -221,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const Text("View all", style: TextStyle(color: Colors.blueAccent)),
+        const Text("Xem tất cả", style: TextStyle(color: Colors.blueAccent, fontSize: 15)),
       ],
     );
   }
@@ -236,11 +240,11 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(28),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black12,
               blurRadius: 20,
-              offset: const Offset(0, 10),
+              offset: Offset(0, 10),
             ),
           ],
         ),
@@ -280,8 +284,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 8),
+                        // Giá VNĐ - dùng getter từ model
                         Text(
-                          "\$${shoe.price.toStringAsFixed(2)}",
+                          shoe.priceVND, // Ví dụ: "2.893.000 ₫"
                           style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black),
                         ),
                       ],
@@ -290,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            // Nút Tim (Lắng nghe Stream từ Firebase)
+            // Nút Yêu thích
             Positioned(
               top: 15,
               right: 15,
@@ -301,15 +306,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   final List<String> favoriteIds = snapshot.data!;
                   final bool isLoved = favoriteIds.contains(shoe.id);
                   return GestureDetector(
-                    onTap: () async {
-                      await db.toggleFavorite(shoe.id);
-                    },
+                    onTap: () async => await db.toggleFavorite(shoe.id),
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.9),
                         shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5)],
+                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)],
                       ),
                       child: Icon(
                         isLoved ? Icons.favorite : Icons.favorite_border,
