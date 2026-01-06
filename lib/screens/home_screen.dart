@@ -1,16 +1,12 @@
-// File: home_screen.dart - Đã chuyển sang hiển thị giá VNĐ + tiếng Việt hóa giao diện
-// Changes:
-// - Giá sản phẩm hiển thị bằng VNĐ (sử dụng getter shoe.priceVND từ Shoe model).
-// - Tỷ giá cập nhật thực tế ngày 06/01/2026: ~26,300 VND/USD (dựa trên dữ liệu thị trường mới nhất).
-// - Tiếng Việt hóa: Greeting, section headers, search hint, "View all", empty message.
-// - Tối ưu layout nhỏ: spacing, font weight, placeholder search.
-// - Giữ nguyên logic lọc brand theo tên (contains).
+// File: lib/screens/home_screen.dart - Đã xóa nút tư vấn size (vì đã có trang chat riêng)
+// Giữ nguyên: giá VNĐ realtime, lọc brand, card sản phẩm đẹp, bấm vào → DetailScreen đúng.
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shopsneaker/screens/detail_screen.dart';
 import '../services/database.dart';
 import '../models/shoe_model.dart';
-import 'detail_screen.dart';
+ // Đúng tên project của bạn
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? openDrawer;
@@ -72,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text("👋", style: TextStyle(fontSize: 28)),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
 
             // Search
             _buildSearchBox(),
@@ -88,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildSectionHeader("Sản phẩm mới"),
             const SizedBox(height: 15),
 
-            // Danh sách sản phẩm
+            // Danh sách sản phẩm - realtime từ Firebase
             StreamBuilder<List<Shoe>>(
               stream: db.sneakers,
               builder: (context, snapshot) {
@@ -232,10 +228,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _shoeCard(BuildContext context, Shoe shoe) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => DetailScreen(shoe: shoe)),
-      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DetailScreen(shoe: shoe)),
+        );
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -284,9 +282,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 8),
-                        // Giá VNĐ - dùng getter từ model
                         Text(
-                          shoe.priceVND, // Ví dụ: "2.893.000 ₫"
+                          shoe.priceVND,
                           style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black),
                         ),
                       ],
@@ -295,7 +292,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            // Nút Yêu thích
             Positioned(
               top: 15,
               right: 15,
