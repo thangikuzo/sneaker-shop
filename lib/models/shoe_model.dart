@@ -1,10 +1,12 @@
 import 'package:intl/intl.dart';
+
 class Shoe {
   final String id;
   final String name;
   final double price; // Giá gốc bằng USD (lưu trong Firestore)
   final List<String> images;
   final String description;
+  final String brand; // <--- [MỚI] Thêm thuộc tính brand
 
   Shoe({
     required this.id,
@@ -12,6 +14,7 @@ class Shoe {
     required this.price,
     required this.images,
     required this.description,
+    required this.brand, // <--- [MỚI] Thêm vào constructor
   });
 
   // Giữ tương thích code cũ
@@ -44,6 +47,7 @@ class Shoe {
   factory Shoe.fromFirestore(Map<String, dynamic> data, String id) {
     List<String> imgList = [];
 
+    // Logic xử lý ảnh cũ của bạn
     if (data['images'] != null) {
       imgList = List<String>.from(data['images']);
     } else if (data['image'] != null) {
@@ -56,6 +60,7 @@ class Shoe {
       price: (data['price'] as num).toDouble(),
       images: imgList,
       description: data['description'] ?? '',
+      brand: data['brand'] ?? 'Nike',
     );
   }
 
@@ -65,6 +70,7 @@ class Shoe {
     "price": price,
     "images": images,
     "description": description,
+    "brand": brand, //
   };
 
   factory Shoe.fromMap(Map<String, dynamic> map) => Shoe(
@@ -73,5 +79,6 @@ class Shoe {
     price: (map["price"] as num?)?.toDouble() ?? 0.0,
     images: List<String>.from(map["images"] ?? const []),
     description: map["description"] ?? "",
+    brand: map["brand"] ?? "",
   );
 }
