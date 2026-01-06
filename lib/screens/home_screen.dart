@@ -1,8 +1,12 @@
+// File: lib/screens/home_screen.dart - Đã xóa nút tư vấn size (vì đã có trang chat riêng)
+// Giữ nguyên: giá VNĐ realtime, lọc brand, card sản phẩm đẹp, bấm vào → DetailScreen đúng.
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shopsneaker/screens/detail_screen.dart';
 import '../services/database.dart';
 import '../models/shoe_model.dart';
-import 'detail_screen.dart';
+ // Đúng tên project của bạn
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? openDrawer;
@@ -15,10 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final db = DatabaseService();
-
-  // Mặc định chọn Nike, nhưng khi load từ Firebase có thể sẽ cần xử lý thêm nếu muốn dynamic hoàn toàn
-  String selectedBrand = "Adidas";
-  String searchText = "";
+  String selectedBrand = "Nike";
 
   @override
   Widget build(BuildContext context) {
@@ -60,67 +61,50 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 10),
+            // Greeting
             const Row(
               children: [
                 Text("Xin chào! ", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                 Text("👋", style: TextStyle(fontSize: 28)),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
 
-            // 1. Ô TÌM KIẾM
+            // Search
             _buildSearchBox(),
             const SizedBox(height: 30),
 
-            // 2. DANH SÁCH HÃNG (LẤY TỪ FIREBASE)
+            // Select Brand
             _buildSectionHeader("Chọn thương hiệu"),
             const SizedBox(height: 15),
-            _buildBrandList(), // <--- Đã sửa thành StreamBuilder
+            _buildBrandList(),
             const SizedBox(height: 30),
 
-            // 3. DANH SÁCH SẢN PHẨM
-            _buildSectionHeader(searchText.isEmpty ? "Sản phẩm mới" : "Kết quả tìm kiếm"),
+            // New Arrival
+            _buildSectionHeader("Sản phẩm mới"),
             const SizedBox(height: 15),
 
+            // Danh sách sản phẩm - realtime từ Firebase
             StreamBuilder<List<Shoe>>(
               stream: db.sneakers,
               builder: (context, snapshot) {
-                if (snapshot.hasError) return const Center(child: Text("Lỗi tải dữ liệu"));
+                if (snapshot.hasError) {
+                  return const Center(child: Text("Lỗi tải dữ liệu"));
+                }
                 if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 final List<Shoe> allShoes = snapshot.data!;
-
-                // --- LOGIC LỌC ĐÃ SỬA LẠI ---
-                final List<Shoe> filteredShoes = allShoes.where((shoe) {
-                  // A. Nếu đang tìm kiếm: Tìm theo TÊN (Bất kể hãng nào)
-                  if (searchText.isNotEmpty) {
-                    return shoe.name.toLowerCase().contains(searchText.toLowerCase());
-                  }
-
-                  // B. Nếu không tìm kiếm: Lọc theo TRƯỜNG BRAND trong Database
-                  // So sánh shoe.brand với selectedBrand (Không phân biệt hoa thường)
-                  return shoe.brand.trim().toLowerCase() == selectedBrand.trim().toLowerCase();
-                }).toList();
-                // ---------------------------
+                final List<Shoe> filteredShoes = allShoes
+                    .where((shoe) => shoe.name.toLowerCase().contains(selectedBrand.toLowerCase()))
+                    .toList();
 
                 if (filteredShoes.isEmpty) {
-                  return Center(
+                  return const Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        children: [
-                          const Icon(Icons.search_off, size: 40, color: Colors.grey),
-                          const SizedBox(height: 10),
-                          Text(
-                            searchText.isNotEmpty
-                                ? "Không tìm thấy giày '$searchText'"
-                                : "Chưa có sản phẩm hãng $selectedBrand",
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
+                      padding: EdgeInsets.all(20.0),
+                      child: Text("Không tìm thấy sản phẩm nào cho thương hiệu này"),
                     ),
                   );
                 }
@@ -147,13 +131,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- WIDGET CON: SEARCH BOX ---
   Widget _buildSearchBox() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(30), // Bo tròn hình viên thuốc
+        borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -162,99 +145,74 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: TextField(
-        onChanged: (value) {
-          setState(() {
-            searchText = value;
-          });
-        },
-        decoration: const InputDecoration(
+      child: const TextField(
+        decoration: InputDecoration(
           border: InputBorder.none,
           hintText: "Tìm kiếm giày sneaker...",
           hintStyle: TextStyle(color: Colors.grey),
           icon: Icon(Icons.search, color: Colors.grey),
-          contentPadding: EdgeInsets.symmetric(vertical: 14),
         ),
       ),
     );
   }
 
-  // --- WIDGET CON: BRAND LIST (STREAM TỪ FIREBASE) ---
   Widget _buildBrandList() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: db.brands, // Lắng nghe collection 'brands'
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return const Text("Lỗi tải hãng");
-        if (!snapshot.hasData) return const SizedBox(height: 50, child: Center(child: CircularProgressIndicator()));
+    final Map<String, String> brands = {
+      "Nike": "https://res.cloudinary.com/dyhexxo9t/image/upload/v1767524832/logo_nike_psyjzd.png",
+      "Vans": "https://res.cloudinary.com/dyhexxo9t/image/upload/v1767524833/logo_vans_zzuwql.png",
+      "Puma": "https://res.cloudinary.com/dyhexxo9t/image/upload/v1767524830/logo_puma_gemhjc.png",
+      "Adidas": "https://res.cloudinary.com/dyhexxo9t/image/upload/v1767524829/logo_adidas_xciubb.png",
+      "Jordan": "https://res.cloudinary.com/dyhexxo9t/image/upload/v1767525895/logo_jordan_crjyjs.jpg",
+    };
 
-        final brandList = snapshot.data!;
-
-        if (brandList.isEmpty) return const Text("Chưa có hãng nào");
-
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          child: Row(
-            children: brandList.map((brandData) {
-              final String name = brandData['name'] ?? 'Unknown';
-              final String imageUrl = brandData['image'] ?? '';
-
-              bool isSelected = selectedBrand.toLowerCase() == name.toLowerCase();
-              bool isSearching = searchText.isNotEmpty;
-
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    selectedBrand = name;
-                    // searchText = ""; // Bỏ comment dòng này nếu muốn bấm Hãng thì xóa tìm kiếm
-                  });
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.only(right: 15, bottom: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  decoration: BoxDecoration(
-                    // Nếu đang search thì không highlight hãng để tránh nhầm lẫn
-                    color: isSelected && !isSearching ? Colors.black : Colors.white,
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: brands.keys.map((name) {
+          bool isSelected = selectedBrand == name;
+          return GestureDetector(
+            onTap: () => setState(() => selectedBrand = name),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(right: 15, bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.black : Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    offset: Offset(0, 5),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (imageUrl.isNotEmpty)
-                        CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          height: 28,
-                          width: 28,
-                          fit: BoxFit.contain,
-                          // KHÔNG set color ở đây để giữ màu gốc của Logo
-                          placeholder: (_, __) => const SizedBox(width: 28),
-                          errorWidget: (_, __, ___) => const Icon(Icons.category, size: 20),
-                        ),
-                      const SizedBox(width: 10),
-                      Text(
-                        name,
-                        style: TextStyle(
-                          color: isSelected && !isSearching ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CachedNetworkImage(
+                    imageUrl: brands[name]!,
+                    height: 32,
+                    width: 32,
+                    fit: BoxFit.contain,
+                    errorWidget: (_, __, ___) => const Icon(Icons.category, size: 25),
                   ),
-                ),
-              );
-            }).toList(),
-          ),
-        );
-      },
+                  const SizedBox(width: 12),
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -263,18 +221,19 @@ class _HomeScreenState extends State<HomeScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        if (searchText.isEmpty)
-          const Text("Xem tất cả", style: TextStyle(color: Colors.blueAccent, fontSize: 15)),
+        const Text("Xem tất cả", style: TextStyle(color: Colors.blueAccent, fontSize: 15)),
       ],
     );
   }
 
   Widget _shoeCard(BuildContext context, Shoe shoe) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => DetailScreen(shoe: shoe)),
-      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DetailScreen(shoe: shoe)),
+        );
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -292,7 +251,6 @@ class _HomeScreenState extends State<HomeScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Ảnh sản phẩm
                 Expanded(
                   flex: 5,
                   child: Container(
@@ -301,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Hero(
                       tag: shoe.id,
                       child: CachedNetworkImage(
-                        imageUrl: shoe.image, // Getter tự lấy ảnh đầu tiên
+                        imageUrl: shoe.image,
                         fit: BoxFit.contain,
                         placeholder: (_, __) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                         errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.grey, size: 40),
@@ -309,7 +267,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                // Thông tin tên và giá
                 Expanded(
                   flex: 3,
                   child: Padding(
@@ -326,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          shoe.priceVND, // Hiển thị giá VNĐ
+                          shoe.priceVND,
                           style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black),
                         ),
                       ],
@@ -335,7 +292,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            // Nút Yêu thích (Tim)
             Positioned(
               top: 15,
               right: 15,

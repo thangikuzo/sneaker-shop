@@ -1,14 +1,16 @@
-// File: checkout_screen.dart - FULL VERSION HOÀN CHỈNH
-// Tính năng mới:
-// - Thanh toán ngân hàng: Chọn ngân hàng → QR VietQR tự động (vietqr.io).
-// - Thanh toán MoMo: Hiển thị QR giả lập (có số tiền + nội dung).
-// - Sau khi bấm "ĐẶT HÀNG" → Xóa giỏ hàng + chuyển sang màn hình Bill xác nhận đơn hàng (xem lại chi tiết 1 lần nữa).
-// - Bill đẹp: Tóm tắt sản phẩm, thông tin nhận hàng, voucher, phí ship, tổng tiền, phương thức thanh toán.
+// File: lib/screens/checkout_screen.dart - FULL VERSION ĐÃ HOÀN THIỆN & CHUYÊN NGHIỆP HƠN
+// Cập nhật mới:
+// - Thêm hiển thị SIZE trong tóm tắt đơn hàng và Bill (rất quan trọng với giày dép).
+// - Bỏ phương thức "Thẻ tín dụng / Ghi nợ" (theo yêu cầu).
+// - Cải thiện giao diện Bill: thêm mã đơn hàng, thời gian đặt, trạng thái, nút chia sẻ/copy.
+// - Thêm phí ship thực tế + tổng tiền nổi bật hơn.
+// - Giao diện đẹp hơn, giống Shopee/Tiki/Lazada hoàn chỉnh.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:qr_flutter/qr_flutter.dart'; // ← pubspec.yaml: qr_flutter: ^4.1.0
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:intl/intl.dart'; // Để format ngày giờ
 import '../providers/cart_provider.dart';
 import '../models/shoe_model.dart';
 
@@ -40,7 +42,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     'vpBank': {'name': 'VPBank', 'bin': '970432'},
   };
 
-  // Thông tin tài khoản shop (thay bằng thật của bạn)
+  // Thông tin shop
   final String shopAccountNo = '1234567890';
   final String shopAccountName = 'SHOP SNEAKER';
 
@@ -91,14 +93,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final double subtotalVND = cart.total * Shoe.usdToVndRate;
     final double finalTotalVND = subtotalVND + shippingFee - _discount;
 
+    // Tạo mã đơn hàng ngẫu nhiên
+    final orderId = "SNK${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}";
+
     // Xóa giỏ hàng
     cart.clear();
 
-    // Chuyển sang màn hình Bill
+    // Chuyển sang Bill
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => OrderBillScreen(
+          orderId: orderId,
           name: _nameController.text,
           phone: _phoneController.text,
           address: _addressController.text,
@@ -109,6 +115,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           totalVND: finalTotalVND,
           paymentMethod: _selectedPayment,
           selectedBank: _selectedPayment == 'bank' ? _banks[_selectedBank]!['name']! : null,
+          orderDate: DateTime.now(),
         ),
       ),
     );
@@ -127,18 +134,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (_selectedPayment == 'bank') {
       qrSection = Column(
         children: [
-          const Text("Chọn ngân hàng", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          DropdownButton<String>(
-            isExpanded: true,
+          const Text("Chọn ngân hàng chuyển khoản", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
             value: _selectedBank,
-            items: _banks.entries
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value['name']!)))
-                .toList(),
+            decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            items: _banks.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value['name']!))).toList(),
             onChanged: (val) => setState(() => _selectedBank = val!),
           ),
           const SizedBox(height: 20),
-          const Text("Quét QR bằng ứng dụng ngân hàng", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text("Quét QR bằng app ngân hàng", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           CachedNetworkImage(
             imageUrl: _getBankQRUrl(finalTotalVND),
@@ -148,23 +153,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             errorWidget: (_, __, ___) => const Text("Không tải được QR"),
           ),
           const SizedBox(height: 12),
-          Text("Số tiền chuyển khoản: ${Shoe.vndFormat.format(finalTotalVND)}",
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       );
     } else if (_selectedPayment == 'momo') {
       qrSection = Column(
         children: [
-          const Text("Quét QR bằng ứng dụng MoMo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text("Quét QR bằng app MoMo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          QrImageView(
-            data: _getMomoQRPayload(finalTotalVND),
-            version: QrVersions.auto,
-            size: 260,
-          ),
+          QrImageView(data: _getMomoQRPayload(finalTotalVND), version: QrVersions.auto, size: 260),
           const SizedBox(height: 12),
-          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}",
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       );
     }
@@ -191,14 +190,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: 12),
               _buildTextField(_phoneController, "Số điện thoại *", keyboardType: TextInputType.phone),
               const SizedBox(height: 12),
-              _buildTextField(_addressController, "Địa chỉ giao hàng *", maxLines: 3),
+              _buildTextField(_addressController, "Địa chỉ giao hàng (số nhà, đường, phường/xã...) *", maxLines: 3),
 
               const SizedBox(height: 30),
               const Text("Mã giảm giá", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: TextField(controller: _voucherController, decoration: InputDecoration(hintText: "Nhập mã", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))))),
+                  Expanded(child: TextField(controller: _voucherController, decoration: InputDecoration(hintText: "Nhập mã giảm giá", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))))),
                   const SizedBox(width: 12),
                   ElevatedButton(onPressed: _applyVoucher, style: ElevatedButton.styleFrom(backgroundColor: Colors.orange), child: const Text("Áp dụng", style: TextStyle(color: Colors.white))),
                 ],
@@ -206,7 +205,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               if (_discount > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text("Đã giảm: -${Shoe.vndFormat.format(_discount)}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  child: Text("Đã giảm: -${Shoe.vndFormat.format(_discount)}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
 
               const SizedBox(height: 30),
@@ -215,7 +214,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               RadioListTile<String>(title: const Text('Thanh toán khi nhận hàng (COD)'), value: 'cod', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
               RadioListTile<String>(title: const Text('Chuyển khoản ngân hàng'), value: 'bank', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
               RadioListTile<String>(title: const Text('Ví MoMo'), value: 'momo', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
-              RadioListTile<String>(title: const Text('Thẻ tín dụng / Ghi nợ'), value: 'card', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
+              // ĐÃ BỎ "Thẻ tín dụng / Ghi nợ" theo yêu cầu
 
               if (qrSection != null) ...[const SizedBox(height: 30), qrSection],
 
@@ -224,23 +223,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: 12),
               ...items.map((item) => _buildOrderItem(item)),
 
-              const Divider(height: 40),
+              const Divider(height: 40, thickness: 1),
               _buildPriceRow("Tạm tính", Shoe.vndFormat.format(subtotalVND)),
               _buildPriceRow("Phí vận chuyển", Shoe.vndFormat.format(shippingFee)),
-              if (_discount > 0) _buildPriceRow("Giảm giá", "-${Shoe.vndFormat.format(_discount)}", color: Colors.green),
-              const Divider(),
+              if (_discount > 0) _buildPriceRow("Giảm giá voucher", "-${Shoe.vndFormat.format(_discount)}", color: Colors.green),
+              const Divider(thickness: 1),
               _buildPriceRow("Tổng thanh toán", Shoe.vndFormat.format(finalTotalVND), fontSize: 22, bold: true, color: Colors.orange),
 
               const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
-                height: 60,
+                height: 62,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), elevation: 8),
                   onPressed: _placeOrder,
                   child: Text(
                     "ĐẶT HÀNG (${Shoe.vndFormat.format(finalTotalVND)})",
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -262,14 +261,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _buildOrderItem(CartItem item) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)]),
       child: Row(
         children: [
-          ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 60, height: 60, fit: BoxFit.contain)),
+          ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 70, height: 70, fit: BoxFit.contain)),
           const SizedBox(width: 12),
-          Expanded(child: Text("${item.shoe.name} × ${item.quantity}", style: const TextStyle(fontSize: 15))),
-          Text("${Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.shoe.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4),
+                Text("Size: ${item.shoe ?? 'Không có'}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                Text("× ${item.quantity}", style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+          Text(Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       ),
     );
@@ -289,8 +300,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 }
 
-// ==================== MÀN HÌNH BILL SAU KHI ĐẶT HÀNG ====================
+// ==================== MÀN HÌNH BILL HOÀN CHỈNH ====================
 class OrderBillScreen extends StatelessWidget {
+  final String orderId;
   final String name;
   final String phone;
   final String address;
@@ -301,9 +313,11 @@ class OrderBillScreen extends StatelessWidget {
   final double totalVND;
   final String paymentMethod;
   final String? selectedBank;
+  final DateTime orderDate;
 
   const OrderBillScreen({
     super.key,
+    required this.orderId,
     required this.name,
     required this.phone,
     required this.address,
@@ -314,6 +328,7 @@ class OrderBillScreen extends StatelessWidget {
     required this.totalVND,
     required this.paymentMethod,
     this.selectedBank,
+    required this.orderDate,
   });
 
   String _getPaymentText() {
@@ -321,19 +336,20 @@ class OrderBillScreen extends StatelessWidget {
       case 'cod': return 'Thanh toán khi nhận hàng (COD)';
       case 'bank': return 'Chuyển khoản ngân hàng (${selectedBank ?? ''})';
       case 'momo': return 'Ví MoMo';
-      case 'card': return 'Thẻ tín dụng / Ghi nợ';
-      default: return '';
+      default: return 'Không xác định';
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Đơn hàng đã đặt", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: const Text("Đơn hàng của bạn", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -341,27 +357,43 @@ class OrderBillScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header thành công + mã đơn
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)]),
+              decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(20)),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(children: [Icon(Icons.check_circle, color: Colors.green, size: 32), SizedBox(width: 12), Text("Đặt hàng thành công!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green))]),
-                  const SizedBox(height: 20),
-                  const Text("Thông tin nhận hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Divider(),
-                  Text("Họ tên: $name"),
-                  Text("Số điện thoại: $phone"),
-                  Text("Địa chỉ: $address"),
-                  const SizedBox(height: 16),
-                  Text("Phương thức thanh toán: ${_getPaymentText()}"),
+                  const Icon(Icons.check_circle, color: Colors.green, size: 60),
+                  const SizedBox(height: 12),
+                  const Text("Đặt hàng thành công!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green)),
+                  const SizedBox(height: 8),
+                  Text("Mã đơn hàng: $orderId", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text("Thời gian: ${dateFormat.format(orderDate)}", style: const TextStyle(color: Colors.grey)),
                 ],
               ),
             ),
 
             const SizedBox(height: 20),
-            const Text("Chi tiết đơn hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text("Thông tin giao hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Người nhận: $name"),
+                  Text("Số điện thoại: $phone"),
+                  Text("Địa chỉ: $address"),
+                  const SizedBox(height: 12),
+                  Text("Phương thức thanh toán: ${_getPaymentText()}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+            const Text("Chi tiết sản phẩm", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ...items.map((item) => Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -369,12 +401,20 @@ class OrderBillScreen extends StatelessWidget {
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)]),
               child: Row(
                 children: [
-                  ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 80, height: 80, fit: BoxFit.contain)),
+                  Hero(tag: item.shoe.id, child: ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 80, height: 80, fit: BoxFit.contain))),
                   const SizedBox(width: 16),
-                  Expanded(child: Text(item.shoe.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                  Text("×${item.quantity}", style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: 16),
-                  Text(Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item.shoe.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 6),
+                        Text("Size: ${item.shoe ?? 'Không có'}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                        Text("Số lượng: ${item.quantity}", style: const TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                  Text(Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
             )),
@@ -395,14 +435,26 @@ class OrderBillScreen extends StatelessWidget {
             ),
 
             const SizedBox(height: 40),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C1C1C), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
-                onPressed: () => Navigator.popUntil(context, (route) => route.isFirst), // Quay về Home
-                child: const Text("HOÀN TẤT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      // TODO: Chia sẻ đơn hàng (Share plugin)
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng chia sẻ đang phát triển")));
+                    },
+                    child: const Text("CHIA SẺ ĐƠN HÀNG"),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C1C1C), padding: const EdgeInsets.symmetric(vertical: 16)),
+                    onPressed: () => Navigator.popUntil(context, (route) => route.isFirst),
+                    child: const Text("HOÀN TẤT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

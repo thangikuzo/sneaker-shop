@@ -1,12 +1,13 @@
+// File: lib/models/shoe_model.dart
 import 'package:intl/intl.dart';
 
 class Shoe {
   final String id;
   final String name;
-  final double price; // Giá gốc bằng USD (lưu trong Firestore)
+  final double price; // Giá gốc bằng USD
   final List<String> images;
   final String description;
-  final String brand; // <--- [MỚI] Thêm thuộc tính brand
+  final List<num> sizes; // ← MỚI: Danh sách size (ví dụ: [39, 40, 41])
 
   Shoe({
     required this.id,
@@ -14,7 +15,7 @@ class Shoe {
     required this.price,
     required this.images,
     required this.description,
-    required this.brand, // <--- [MỚI] Thêm vào constructor
+    this.sizes = const [], // mặc định rỗng nếu chưa có
   });
 
   // Giữ tương thích code cũ
@@ -24,34 +25,43 @@ class Shoe {
   }
 
   // ==================== HỖ TRỢ VNĐ (CẬP NHẬT 06/01/2026) ====================
-  // Tỷ giá thực tế hôm nay ~26,300 - 26,330 → dùng 26,300 cho đẹp & ổn định
   static const double usdToVndRate = 26300.0;
 
-  // Formatter tiền Việt Nam đẹp (2.893.000 ₫)
   static final NumberFormat vndFormat = NumberFormat.currency(
     locale: 'vi_VN',
     symbol: '₫',
-    decimalDigits: 0, // Không hiển thị phần thập phân
+    decimalDigits: 0,
   );
 
-  // Giá đã format sẵn để hiển thị trực tiếp
   String get priceVND => vndFormat.format(price * usdToVndRate);
 
-  // Nếu cần số VND để tính toán (subtotal, total...)
   double get priceInVND => price * usdToVndRate;
 
-  // Giữ lại USD nếu cần chuyển lại sau này
   String get priceUSD => "\$${price.toStringAsFixed(2)}";
   // ======================================================================
 
+  // ==================== HỖ TRỢ SIZE GIÀY ====================
+  bool get hasSizes => sizes.isNotEmpty;
+
+  // Hiển thị danh sách size đẹp (ví dụ: "39, 40, 41")
+  String get sizesDisplay =>
+      sizes.map((s) => s % 1 == 0 ? s.toInt().toString() : s.toString()).join(', ');
+
+  // Kiểm tra có size cụ thể không (dùng cho tư vấn)
+  bool hasSize(num size) => sizes.contains(size);
+  // =========================================================
+
   factory Shoe.fromFirestore(Map<String, dynamic> data, String id) {
     List<String> imgList = [];
-
-    // Logic xử lý ảnh cũ của bạn
     if (data['images'] != null) {
       imgList = List<String>.from(data['images']);
     } else if (data['image'] != null) {
       imgList = [data['image']];
+    }
+
+    List<num> sizeList = [];
+    if (data['sizes'] != null) {
+      sizeList = List<num>.from(data['sizes']);
     }
 
     return Shoe(
@@ -60,7 +70,7 @@ class Shoe {
       price: (data['price'] as num).toDouble(),
       images: imgList,
       description: data['description'] ?? '',
-      brand: data['brand'] ?? 'Nike',
+      sizes: sizeList,
     );
   }
 
@@ -70,7 +80,7 @@ class Shoe {
     "price": price,
     "images": images,
     "description": description,
-    "brand": brand, //
+    "sizes": sizes, // nếu cần lưu local
   };
 
   factory Shoe.fromMap(Map<String, dynamic> map) => Shoe(
@@ -79,6 +89,6 @@ class Shoe {
     price: (map["price"] as num?)?.toDouble() ?? 0.0,
     images: List<String>.from(map["images"] ?? const []),
     description: map["description"] ?? "",
-    brand: map["brand"] ?? "",
+    sizes: map["sizes"] != null ? List<num>.from(map["sizes"]) : [],
   );
 }
