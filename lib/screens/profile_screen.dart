@@ -1,10 +1,11 @@
+// File: lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth_service.dart';
+import 'order_history_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  // Biến nhận lệnh "Quay về Home" từ MainScreen truyền vào
   final VoidCallback? onBackToHome;
 
   const ProfileScreen({super.key, this.onBackToHome});
@@ -20,10 +21,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _dobController = TextEditingController();
 
   String _email = "";
-  String _avatarUrl = "https://i.pravatar.cc/300"; // Avatar mặc định
-  String _role = "user"; // [MỚI] Biến lưu quyền hạn
+  String _avatarUrl = "https://i.pravatar.cc/300";
+  String _role = "user";
 
   bool _isLoading = false;
+  bool _isEditing = false;
 
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
@@ -33,7 +35,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserData();
   }
 
-  // Tải dữ liệu từ Firebase
   Future<void> _loadUserData() async {
     if (currentUser == null) return;
     setState(() => _isLoading = true);
@@ -50,8 +51,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _phoneController.text = data['phone'] ?? "";
           _addressController.text = data['address'] ?? "";
           _dobController.text = data['dob'] ?? "";
-
-          // [MỚI] Lấy role từ Firebase
           _role = data['role'] ?? "user";
 
           if (data['avatar'] != null && data['avatar'].isNotEmpty) {
@@ -66,30 +65,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // Lưu dữ liệu lên Firebase
   Future<void> _saveProfile() async {
     if (currentUser == null) return;
     setState(() => _isLoading = true);
     try {
-      // Dùng SetOptions(merge: true) để chỉ cập nhật các trường thay đổi, giữ nguyên role và email
       await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).set({
         'fullName': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
         'dob': _dobController.text.trim(),
         'avatar': _avatarUrl,
-        // Không gửi 'role' lên đây để tránh user tự hack thành admin
       }, SetOptions(merge: true));
+
+      setState(() => _isEditing = false);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Cập nhật thành công!"), backgroundColor: Colors.green)
+          const SnackBar(content: Text("Cập nhật thành công!"), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Lỗi: $e"), backgroundColor: Colors.red)
+          SnackBar(content: Text("Lỗi: $e"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -99,7 +97,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _selectDate() async {
     DateTime? picked = await showDatePicker(
-      context: context, initialDate: DateTime.now(), firstDate: DateTime(1900), lastDate: DateTime.now(),
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
     );
     if (picked != null) {
       setState(() => _dobController.text = "${picked.day}/${picked.month}/${picked.year}");
@@ -109,150 +110,173 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    final bool isAdmin = _role == 'admin'; // Kiểm tra xem có phải admin không
+    final bool isAdmin = _role == 'admin';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text("Hồ sơ cá nhân", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: const Text("Tài khoản", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
           onPressed: () {
-            if (widget.onBackToHome != null) {
-              widget.onBackToHome!();
-            }
+            if (widget.onBackToHome != null) widget.onBackToHome!();
           },
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.red),
-            onPressed: () async {
-              await AuthService().signOut();
-            },
+            onPressed: () async => await AuthService().signOut(),
           )
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(25),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Avatar Area
             Center(
               child: Stack(
                 children: [
                   Container(
-                    width: 120, height: 120,
+                    width: 100,
+                    height: 100,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey.shade200, width: 4),
+                      border: Border.all(color: Colors.grey.shade300, width: 3),
                       image: DecorationImage(image: NetworkImage(_avatarUrl), fit: BoxFit.cover),
                     ),
                   ),
-                  // Nếu là Admin thì hiện thêm biểu tượng xác minh cho oai
                   if (isAdmin)
                     Positioned(
-                      top: 0, right: 0,
+                      top: 0,
+                      right: 0,
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
-                        child: const Icon(Icons.verified, color: Colors.white, size: 20),
+                        child: const Icon(Icons.verified, color: Colors.white, size: 18),
                       ),
                     ),
-                  Positioned(
-                    bottom: 0, right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(color: Colors.black, shape: BoxShape.circle),
-                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                    ),
-                  )
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+            Text(
+              _nameController.text.isEmpty ? "Chưa đặt tên" : _nameController.text,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isAdmin ? "Quản trị viên" : "Khách hàng",
+              style: TextStyle(color: isAdmin ? Colors.blue[700] : Colors.grey[600], fontSize: 15),
+            ),
             const SizedBox(height: 30),
-
-            // --- [MỚI] Hiển thị Role ---
-            _buildTextField(
-              "Loại tài khoản",
-              "",
-              null,
-              isAdmin ? Icons.security : Icons.person,
-              readOnly: true,
-              initialValue: isAdmin ? "Quản Trị Viên (Admin)" : "Khách Hàng",
-              customTextColor: isAdmin ? Colors.blue[800] : Colors.black87,
-              customIconColor: isAdmin ? Colors.blue : Colors.grey,
-            ),
-            const SizedBox(height: 15),
-            // ---------------------------
-
-            _buildTextField("Họ và Tên", "Nhập tên của bạn", _nameController, Icons.person_outline),
-            const SizedBox(height: 15),
-            _buildTextField("Gmail", "", null, Icons.email_outlined, readOnly: true, initialValue: _email),
-            const SizedBox(height: 15),
-            _buildTextField("Số điện thoại", "Nhập SĐT", _phoneController, Icons.phone_outlined, inputType: TextInputType.phone),
-            const SizedBox(height: 15),
-            GestureDetector(
-              onTap: _selectDate,
-              child: AbsorbPointer(
-                child: _buildTextField("Ngày sinh", "Chọn ngày sinh", _dobController, Icons.calendar_today_outlined),
-              ),
-            ),
-            const SizedBox(height: 15),
-            _buildTextField("Địa chỉ", "Nhập địa chỉ giao hàng", _addressController, Icons.location_on_outlined),
-
-            const SizedBox(height: 40),
 
             SizedBox(
               width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _saveProfile,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () => setState(() => _isEditing = !_isEditing),
+                icon: Icon(_isEditing ? Icons.close : Icons.edit, color: Colors.black),
+                label: Text(_isEditing ? "Hủy chỉnh sửa" : "Chỉnh sửa thông tin cá nhân", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.black54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text("CẬP NHẬT THÔNG TIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
+            const SizedBox(height: 20),
 
-            SizedBox(height: 100 + bottomPadding),
+            if (_isEditing) ...[
+              _buildEditableField("Họ và tên", _nameController, Icons.person_outline),
+              const SizedBox(height: 15),
+              _buildEditableField("Số điện thoại", _phoneController, Icons.phone_outlined, keyboardType: TextInputType.phone),
+              const SizedBox(height: 15),
+              GestureDetector(
+                onTap: _selectDate,
+                child: AbsorbPointer(
+                  child: _buildEditableField("Ngày sinh", _dobController, Icons.calendar_today_outlined),
+                ),
+              ),
+              const SizedBox(height: 15),
+              _buildEditableField("Địa chỉ giao hàng", _addressController, Icons.location_on_outlined),
+
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  onPressed: _saveProfile,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
+                  child: const Text("LƯU THAY ĐỔI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+              ),
+              const SizedBox(height: 40),
+            ],
+
+            // === MENU CẬP NHẬT ===
+            _buildMenuItem(Icons.receipt_long_outlined, "Lịch sử đơn hàng", () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
+              );
+            }),
+            _buildMenuItem(Icons.favorite_border, "Sản phẩm yêu thích", () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng đang phát triển")));
+            }),
+            _buildMenuItem(Icons.card_giftcard, "Săn Voucher", () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng đang phát triển")));
+            }),
+            _buildMenuItem(Icons.notifications_outlined, "Thông báo", () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng đang phát triển")));
+            }),
+            _buildMenuItem(Icons.help_outline, "Hỗ trợ khách hàng", () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng đang phát triển")));
+            }),
+            _buildMenuItem(Icons.settings_outlined, "Cài đặt", () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng đang phát triển")));
+            }),
+
+            SizedBox(height: 50 + bottomPadding),
           ],
         ),
       ),
     );
   }
 
-  // Widget TextField Helper (Đã nâng cấp để hỗ trợ đổi màu chữ/icon)
-  Widget _buildTextField(String label, String hint, TextEditingController? controller, IconData icon,
-      {bool readOnly = false, String? initialValue, TextInputType inputType = TextInputType.text, Color? customTextColor, Color? customIconColor}) {
+  Widget _buildEditableField(String label, TextEditingController controller, IconData icon, {TextInputType keyboardType = TextInputType.text}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.grey)),
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
-          initialValue: initialValue,
-          readOnly: readOnly,
-          keyboardType: inputType,
-          style: TextStyle(color: customTextColor ?? Colors.black, fontWeight: readOnly ? FontWeight.bold : FontWeight.normal),
+          keyboardType: keyboardType,
           decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: Icon(icon, color: customIconColor ?? Colors.black54),
+            prefixIcon: Icon(icon, color: Colors.black54),
             filled: true,
-            fillColor: readOnly ? Colors.grey.shade100 : Colors.white,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            fillColor: Colors.grey.shade100,
+            contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.black, width: 1.5)),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+      leading: Icon(icon, color: Colors.black87, size: 26),
+      title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+      trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+      onTap: onTap,
     );
   }
 }

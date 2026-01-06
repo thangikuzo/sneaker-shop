@@ -1,7 +1,9 @@
+// File: lib/screens/admin_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/database.dart';
 import '../models/shoe_model.dart';
+import 'admin_orders_screen.dart'; // ← THÊM DÒNG NÀY
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -17,7 +19,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this); // ← TĂNG TỪ 3 → 4 TAB
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
@@ -33,10 +41,12 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           indicatorColor: Colors.amber,
           labelColor: Colors.amber,
           unselectedLabelColor: Colors.white60,
+          isScrollable: true, // Cho phép cuộn ngang khi nhiều tab
           tabs: const [
             Tab(text: "Sản phẩm", icon: Icon(Icons.inventory_2_outlined)),
             Tab(text: "Hãng", icon: Icon(Icons.category_outlined)),
             Tab(text: "User", icon: Icon(Icons.people_alt_outlined)),
+            Tab(text: "Đơn hàng", icon: Icon(Icons.receipt_long_outlined)), // ← TAB MỚI
           ],
         ),
       ),
@@ -44,8 +54,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         controller: _tabController,
         children: [
           _buildProductTab(),
-          _buildBrandTab(), // Đã cập nhật tính năng Sửa/Xóa
+          _buildBrandTab(),
           _buildUserTab(),
+          const AdminOrdersScreen(), // ← MÀN HÌNH QUẢN LÝ ĐƠN HÀNG
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -53,16 +64,14 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         icon: const Icon(Icons.add, color: Colors.amber),
         label: const Text("Thêm Mới", style: TextStyle(color: Colors.white)),
         onPressed: () {
-          // Tab 0: Thêm sản phẩm
           if (_tabController.index == 0) _showProductDialog(null);
-          // Tab 1: Thêm hãng (Truyền null để báo là thêm mới)
           if (_tabController.index == 1) _showBrandDialog(null);
         },
       ),
     );
   }
 
-  // ==================== TAB 1: QUẢN LÝ SẢN PHẨM ====================
+  // ==================== TAB SẢN PHẨM ====================
   Widget _buildProductTab() {
     return StreamBuilder<List<Shoe>>(
       stream: db.sneakers,
@@ -76,16 +85,17 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           itemBuilder: (context, index) {
             final shoe = shoes[index];
             return Card(
-              elevation: 2,
+              elevation: 3,
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: ListTile(
-                contentPadding: const EdgeInsets.all(10),
+                contentPadding: const EdgeInsets.all(12),
                 leading: Container(
-                  width: 60, height: 60,
+                  width: 70,
+                  height: 70,
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: CachedNetworkImage(
                     imageUrl: shoe.image,
@@ -97,8 +107,12 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const SizedBox(height: 6),
+                    Text("${shoe.brand} • ${shoe.priceVND}",
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
-                    Text("${shoe.brand} • ${shoe.priceVND}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+                    Text("Tổng stock: ${shoe.totalStock}", style: const TextStyle(fontSize: 13)),
+                    Text(shoe.stockDisplay, style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
                     Text("ID: ${shoe.id}", style: const TextStyle(fontSize: 10, color: Colors.grey)),
                   ],
                 ),
@@ -121,7 +135,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  // ==================== TAB 2: QUẢN LÝ HÃNG (ĐÃ CẬP NHẬT) ====================
+  // ==================== TAB HÃNG ====================
   Widget _buildBrandTab() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: db.brands,
@@ -150,20 +164,19 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   ),
                   child: CachedNetworkImage(
                     imageUrl: brand['image'] ?? "",
-                    width: 40, height: 40,
+                    width: 40,
+                    height: 40,
                     fit: BoxFit.contain,
                     errorWidget: (_,__,___) => const Icon(Icons.broken_image),
                   ),
                 ),
                 title: Text(brand['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-
-                // [MỚI] Thêm nút Edit và Delete cho Hãng
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.edit, color: Colors.blue),
-                      onPressed: () => _showBrandDialog(brand), // Truyền data hãng vào để sửa
+                      onPressed: () => _showBrandDialog(brand),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete, color: Colors.red),
@@ -179,7 +192,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  // ==================== TAB 3: QUẢN LÝ USER ====================
+  // ==================== TAB USER ====================
   Widget _buildUserTab() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: db.allUsers,
@@ -206,79 +219,208 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  // ==================== DIALOG THÊM / SỬA SẢN PHẨM ====================
+  // ==================== DIALOG SẢN PHẨM ====================
   void _showProductDialog(Shoe? shoe) {
     final isEdit = shoe != null;
-    final nameController = TextEditingController(text: shoe?.name);
-    final priceController = TextEditingController(text: shoe?.price.toString());
-    final brandController = TextEditingController(text: shoe?.brand ?? "Nike");
-    final descController = TextEditingController(text: shoe?.description);
-    final imagesController = TextEditingController(text: shoe?.images.join(", "));
+
+    final nameController = TextEditingController(text: shoe?.name ?? '');
+    final priceController = TextEditingController(text: shoe?.price.toString() ?? '');
+    final brandController = TextEditingController(text: shoe?.brand ?? 'Nike');
+    final descController = TextEditingController(text: shoe?.description ?? '');
+    final imagesController = TextEditingController(text: shoe?.images.join(', ') ?? '');
+
+    List<String> sizeList = List.from(shoe?.sizes ?? ['39', '40', '41', '42']);
+    Map<String, int> stockMap = Map.from(shoe?.stock ?? {});
+
+    for (var size in sizeList) {
+      stockMap[size] ??= 0;
+    }
+
+    final ScrollController scrollController = ScrollController();
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEdit ? "Cập nhật sản phẩm" : "Thêm giày mới"),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _inputField(nameController, "Tên giày"),
-              Row(
-                children: [
-                  Expanded(child: _inputField(priceController, "Giá (USD)", isNumber: true)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _inputField(brandController, "Hãng")),
-                ],
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          final List<TextEditingController> sizeControllers = sizeList.map((s) => TextEditingController(text: s)).toList();
+          final List<TextEditingController> stockControllers = sizeList.map((s) => TextEditingController(text: stockMap[s].toString())).toList();
+
+          return AlertDialog(
+            title: Text(isEdit ? "Cập nhật sản phẩm" : "Thêm sản phẩm mới",
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(context).size.height * 0.75,
+              child: SingleChildScrollView(
+                controller: scrollController,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _inputField(nameController, "Tên giày"),
+                    Row(
+                      children: [
+                        Expanded(child: _inputField(priceController, "Giá (USD)", isNumber: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _inputField(brandController, "Hãng")),
+                      ],
+                    ),
+                    _inputField(imagesController, "Link ảnh (cách nhau bằng dấu phẩy)", maxLines: 3),
+                    _inputField(descController, "Mô tả sản phẩm", maxLines: 4),
+
+                    const SizedBox(height: 20),
+                    const Divider(thickness: 1.5),
+                    const Text("Quản lý Size & Tồn kho",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    const SizedBox(height: 12),
+
+                    ...List.generate(sizeList.length, (idx) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: sizeControllers[idx],
+                                decoration: InputDecoration(
+                                  labelText: "Size",
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onChanged: (newSize) {
+                                  newSize = newSize.trim();
+                                  if (newSize.isNotEmpty) {
+                                    String oldSize = sizeList[idx];
+                                    sizeList[idx] = newSize;
+                                    if (oldSize != newSize) {
+                                      stockMap[newSize] = stockMap[oldSize] ?? 0;
+                                      stockMap.remove(oldSize);
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 3,
+                              child: TextField(
+                                controller: stockControllers[idx],
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: "Số lượng tồn",
+                                  hintText: "0",
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onChanged: (value) {
+                                  stockMap[sizeList[idx]] = int.tryParse(value) ?? 0;
+                                },
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 30),
+                              onPressed: () {
+                                setStateDialog(() {
+                                  stockMap.remove(sizeList[idx]);
+                                  sizeList.removeAt(idx);
+                                  sizeControllers.removeAt(idx);
+                                  stockControllers.removeAt(idx);
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 16),
+
+                    Center(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.add_circle_outline, color: Colors.black),
+                        label: const Text("Thêm size mới", style: TextStyle(fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          side: const BorderSide(color: Colors.black54),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        ),
+                        onPressed: () {
+                          setStateDialog(() {
+                            sizeList.add('43');
+                            stockMap['43'] = 0;
+                            sizeControllers.add(TextEditingController(text: '43'));
+                            stockControllers.add(TextEditingController(text: '0'));
+                          });
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            scrollController.animateTo(
+                              scrollController.position.maxScrollExtent,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
-              _inputField(imagesController, "Link ảnh (Phân cách bằng dấu phẩy)", maxLines: 3),
-              _inputField(descController, "Mô tả", maxLines: 3),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Hủy", style: TextStyle(color: Colors.grey, fontSize: 16)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                onPressed: () {
+                  List<String> imageList = imagesController.text
+                      .split(',')
+                      .map((e) => e.trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+
+                  sizeList = sizeList.where((s) => s.trim().isNotEmpty).toList();
+
+                  final newShoe = Shoe(
+                    id: isEdit ? shoe!.id : "",
+                    name: nameController.text.trim(),
+                    price: double.tryParse(priceController.text) ?? 0.0,
+                    images: imageList,
+                    description: descController.text.trim(),
+                    brand: brandController.text.trim(),
+                    sizes: sizeList,
+                    stock: stockMap,
+                  );
+
+                  if (isEdit) {
+                    db.updateShoe(newShoe);
+                  } else {
+                    db.addShoe(newShoe);
+                  }
+
+                  Navigator.pop(context);
+                },
+                child: Text(isEdit ? "Cập nhật" : "Thêm sản phẩm",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Hủy")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
-            onPressed: () {
-              List<String> imageList = imagesController.text
-                  .split(',')
-                  .map((e) => e.trim())
-                  .where((e) => e.isNotEmpty)
-                  .toList();
-
-              final newShoe = Shoe(
-                id: isEdit ? shoe!.id : "",
-                name: nameController.text,
-                price: double.tryParse(priceController.text) ?? 0.0,
-                images: imageList,
-                description: descController.text,
-                brand: brandController.text,
-              );
-
-              if (isEdit) {
-                db.updateShoe(newShoe);
-              } else {
-                db.addShoe(newShoe);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text("Lưu dữ liệu"),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  // ==================== [CẬP NHẬT] DIALOG THÊM / SỬA HÃNG ====================
+  // ==================== DIALOG HÃNG ====================
   void _showBrandDialog(Map<String, dynamic>? brandData) {
     final isEdit = brandData != null;
-
-    // Nếu là Edit thì điền sẵn dữ liệu cũ vào ô
     final nameController = TextEditingController(text: isEdit ? brandData['name'] : "");
     final imgController = TextEditingController(text: isEdit ? brandData['image'] : "");
-
-    // Lưu tên cũ để dùng làm ID khi update
     final String oldName = isEdit ? brandData['name'] : "";
 
     showDialog(
@@ -290,52 +432,29 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           children: [
             _inputField(nameController, "Tên Hãng (Ví dụ: Nike)"),
             _inputField(imgController, "Link Logo (URL)"),
-            if (imgController.text.isNotEmpty && isEdit)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text("Lưu ý: Nếu đổi tên hãng, hệ thống sẽ xóa hãng cũ và tạo hãng mới.", style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Hủy")),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
             onPressed: () async {
               if (nameController.text.isEmpty) return;
-
               if (isEdit) {
-                // Gọi hàm update đã viết trong database.dart
                 await db.updateBrand(oldName, nameController.text.trim(), imgController.text.trim());
               } else {
-                // Gọi hàm add
                 await db.addBrand(nameController.text.trim(), imgController.text.trim());
               }
               if (mounted) Navigator.pop(context);
             },
-            child: Text(isEdit ? "Cập nhật" : "Thêm mới"),
-          )
+            child: Text(isEdit ? "Cập nhật" : "Thêm mới", style: const TextStyle(color: Colors.white)),
+          ),
         ],
       ),
     );
   }
 
-  Widget _inputField(TextEditingController controller, String label, {bool isNumber = false, int maxLines = 1}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: controller,
-        maxLines: maxLines,
-        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        ),
-      ),
-    );
-  }
-
+  // ==================== XÓA SẢN PHẨM & HÃNG ====================
   void _confirmDelete(String id) {
     showDialog(
       context: context,
@@ -355,7 +474,6 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  // [MỚI] Dialog xác nhận xóa Hãng
   void _confirmDeleteBrand(String brandId) {
     showDialog(
       context: context,
@@ -372,6 +490,23 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             child: const Text("Xóa", style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+
+  // ==================== INPUT FIELD ====================
+  Widget _inputField(TextEditingController controller, String label, {bool isNumber = false, int maxLines = 1}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextField(
+        controller: controller,
+        maxLines: maxLines,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
       ),
     );
   }

@@ -1,21 +1,16 @@
-// File: lib/screens/checkout_screen.dart - FULL VERSION ĐÃ HOÀN THIỆN & CHUYÊN NGHIỆP HƠN
-// Cập nhật mới:
-// - Thêm hiển thị SIZE trong tóm tắt đơn hàng và Bill (rất quan trọng với giày dép).
-// - Bỏ phương thức "Thẻ tín dụng / Ghi nợ" (theo yêu cầu).
-// - Cải thiện giao diện Bill: thêm mã đơn hàng, thời gian đặt, trạng thái, nút chia sẻ/copy.
-// - Thêm phí ship thực tế + tổng tiền nổi bật hơn.
-// - Giao diện đẹp hơn, giống Shopee/Tiki/Lazada hoàn chỉnh.
-
+// File: lib/screens/checkout_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:intl/intl.dart'; // Để format ngày giờ
+import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/cart_provider.dart';
 import '../models/shoe_model.dart';
 
 class CheckoutScreen extends StatefulWidget {
-  const CheckoutScreen({super.key});
+  const CheckoutScreen({super.key, required String appliedVoucher});
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -31,6 +26,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _selectedPayment = 'cod';
   String _selectedBank = 'vietcombank';
   double _discount = 0.0;
+  bool _isPlacingOrder = false;
 
   final Map<String, Map<String, String>> _banks = {
     'vietcombank': {'name': 'Vietcombank', 'bin': '970436'},
@@ -42,7 +38,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     'vpBank': {'name': 'VPBank', 'bin': '970432'},
   };
 
-  // Thông tin shop
   final String shopAccountNo = '1234567890';
   final String shopAccountName = 'SHOP SNEAKER';
 
@@ -60,14 +55,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() {
       if (code == 'SHOPEE10') {
         _discount = 100000;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Áp dụng mã giảm 100.000 ₫ thành công!')));
       } else if (code == 'FREESHIP') {
         _discount = 30000;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Miễn phí vận chuyển thành công!')));
       } else {
         _discount = 0;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mã voucher không hợp lệ')));
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_discount > 0 ? 'Áp dụng mã thành công!' : 'Mã không hợp lệ')),
+      );
     });
   }
 
@@ -80,45 +75,132 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         'accountName=${Uri.encodeComponent(shopAccountName)}';
   }
 
-  String _getMomoQRPayload(double amountVND) {
-    return 'https://momo.vn/pay?amount=${amountVND.round()}&message=Thanh%20toan%20don%20hang%20Sneaker';
-  }
-
-  void _placeOrder() {
+  Future<void> _placeOrder() async {
     if (!_formKey.currentState!.validate()) return;
 
+    setState(() => _isPlacingOrder = true);
+
     final cart = context.read<CartProvider>();
-    final items = cart.items;
-    const double shippingFee = 30000;
-    final double subtotalVND = cart.total * Shoe.usdToVndRate;
-    final double finalTotalVND = subtotalVND + shippingFee - _discount;
+    final currentUser = FirebaseAuth.instance.currentUser;
 
-    // Tạo mã đơn hàng ngẫu nhiên
-    final orderId = "SNK${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}";
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vui lòng đăng nhập")));
+      setState(() => _isPlacingOrder = false);
+      return;
+    }
 
-    // Xóa giỏ hàng
-    cart.clear();
+    final List<CartItem> orderItems = List.from(cart.items);
 
-    // Chuyển sang Bill
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => OrderBillScreen(
-          orderId: orderId,
-          name: _nameController.text,
-          phone: _phoneController.text,
-          address: _addressController.text,
-          items: items,
-          subtotalVND: subtotalVND,
-          shippingFee: shippingFee,
-          discount: _discount,
-          totalVND: finalTotalVND,
-          paymentMethod: _selectedPayment,
-          selectedBank: _selectedPayment == 'bank' ? _banks[_selectedBank]!['name']! : null,
-          orderDate: DateTime.now(),
-        ),
-      ),
-    );
+    try {
+      // GIẢM STOCK REALTIME (1 transaction)
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        Map<String, Map<String, int>> stockUpdates = {};
+
+        for (var item in orderItems) {
+          if (item.shoe.id.isEmpty) continue;
+
+          final shoeId = item.shoe.id;
+          final size = item.selectedSize;
+          final qty = item.quantity;
+
+          stockUpdates.putIfAbsent(shoeId, () => {});
+          stockUpdates[shoeId]![size] = (stockUpdates[shoeId]![size] ?? 0) + qty;
+        }
+
+        for (var entry in stockUpdates.entries) {
+          final shoeId = entry.key;
+          final sizeQtyMap = entry.value;
+
+          final docRef = FirebaseFirestore.instance.collection('products').doc(shoeId);
+          final snapshot = await transaction.get(docRef);
+
+          if (!snapshot.exists) throw Exception("Sản phẩm không tồn tại!");
+
+          final data = snapshot.data() as Map<String, dynamic>;
+          final currentStockMap = Map<String, dynamic>.from(data['stock'] ?? {});
+
+          for (var sizeEntry in sizeQtyMap.entries) {
+            final size = sizeEntry.key;
+            final qtyToSubtract = sizeEntry.value;
+
+            final currentQty = (currentStockMap[size] as num?)?.toInt() ?? 0;
+            if (currentQty < qtyToSubtract) throw Exception("Không đủ hàng size $size!");
+
+            currentStockMap[size] = currentQty - qtyToSubtract;
+            if (currentStockMap[size] == 0) currentStockMap.remove(size);
+          }
+
+          transaction.update(docRef, {'stock': currentStockMap});
+        }
+      });
+
+      // TÍNH TIỀN
+      const double shippingFee = 30000;
+      final double subtotalVND = cart.subTotal * Shoe.usdToVndRate;
+      final double finalTotalVND = subtotalVND + shippingFee - _discount;
+
+      // TẠO MÃ ĐƠN HÀNG
+      final orderId = "SNK${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}";
+
+      // LƯU ĐƠN HÀNG VÀO COLLECTION 'orders'
+      await FirebaseFirestore.instance.collection('orders').add({
+        'userId': currentUser.uid,
+        'orderId': orderId,
+        'name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
+        'items': orderItems.map((item) => {
+          'shoeId': item.shoe.id,
+          'shoeName': item.shoe.name,
+          'shoeImage': item.shoe.image,
+          'priceUSD': item.shoe.price,
+          'selectedSize': item.selectedSize,
+          'quantity': item.quantity,
+          'totalPriceUSD': item.totalPrice,
+        }).toList(),
+        'subtotalVND': subtotalVND,
+        'shippingFee': shippingFee,
+        'discount': _discount,
+        'totalVND': finalTotalVND,
+        'paymentMethod': _selectedPayment,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // CLEAR GIỎ
+      cart.clear();
+
+      // CHUYỂN SANG BILL
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OrderBillScreen(
+              orderId: orderId,
+              name: _nameController.text,
+              phone: _phoneController.text,
+              address: _addressController.text,
+              items: orderItems,
+              subtotalVND: subtotalVND,
+              shippingFee: shippingFee,
+              discount: _discount,
+              totalVND: finalTotalVND,
+              paymentMethod: _selectedPayment,
+              selectedBank: _selectedPayment == 'bank' ? _banks[_selectedBank]!['name']! : null,
+              orderDate: DateTime.now(),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Đặt hàng thất bại: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPlacingOrder = false);
+    }
   }
 
   @override
@@ -127,14 +209,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final items = cart.items;
 
     const double shippingFee = 30000;
-    final double subtotalVND = cart.total * Shoe.usdToVndRate;
+    final double subtotalVND = cart.subTotal * Shoe.usdToVndRate;
     final double finalTotalVND = subtotalVND + shippingFee - _discount;
 
     Widget? qrSection;
     if (_selectedPayment == 'bank') {
       qrSection = Column(
         children: [
-          const Text("Chọn ngân hàng chuyển khoản", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          const Text("Chọn ngân hàng", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             value: _selectedBank,
@@ -143,27 +225,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             onChanged: (val) => setState(() => _selectedBank = val!),
           ),
           const SizedBox(height: 20),
-          const Text("Quét QR bằng app ngân hàng", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text("Quét QR", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           CachedNetworkImage(
             imageUrl: _getBankQRUrl(finalTotalVND),
             width: 260,
             height: 260,
             placeholder: (_, __) => const CircularProgressIndicator(),
-            errorWidget: (_, __, ___) => const Text("Không tải được QR"),
           ),
           const SizedBox(height: 12),
-          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       );
     } else if (_selectedPayment == 'momo') {
       qrSection = Column(
         children: [
-          const Text("Quét QR bằng app MoMo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text("Quét QR MoMo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          QrImageView(data: _getMomoQRPayload(finalTotalVND), version: QrVersions.auto, size: 260),
+          QrImageView(data: '2|99|$shopAccountNo||0|0|${finalTotalVND.round()}|Thanh toan Sneaker', version: QrVersions.auto, size: 260),
           const SizedBox(height: 12),
-          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text("Số tiền: ${Shoe.vndFormat.format(finalTotalVND)}", style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       );
     }
@@ -177,75 +258,93 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         title: const Text("Thanh toán", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Thông tin nhận hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              _buildTextField(_nameController, "Họ và tên *"),
-              const SizedBox(height: 12),
-              _buildTextField(_phoneController, "Số điện thoại *", keyboardType: TextInputType.phone),
-              const SizedBox(height: 12),
-              _buildTextField(_addressController, "Địa chỉ giao hàng (số nhà, đường, phường/xã...) *", maxLines: 3),
-
-              const SizedBox(height: 30),
-              const Text("Mã giảm giá", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Row(
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: TextField(controller: _voucherController, decoration: InputDecoration(hintText: "Nhập mã giảm giá", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))))),
-                  const SizedBox(width: 12),
-                  ElevatedButton(onPressed: _applyVoucher, style: ElevatedButton.styleFrom(backgroundColor: Colors.orange), child: const Text("Áp dụng", style: TextStyle(color: Colors.white))),
+                  const Text("Thông tin nhận hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  _buildTextField(_nameController, "Họ và tên *"),
+                  const SizedBox(height: 12),
+                  _buildTextField(_phoneController, "Số điện thoại *", keyboardType: TextInputType.phone),
+                  const SizedBox(height: 12),
+                  _buildTextField(_addressController, "Địa chỉ giao hàng *", maxLines: 3),
+
+                  const SizedBox(height: 30),
+                  const Text("Mã giảm giá", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: TextField(controller: _voucherController, decoration: InputDecoration(hintText: "Nhập mã", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))))),
+                      const SizedBox(width: 12),
+                      ElevatedButton(onPressed: _applyVoucher, style: ElevatedButton.styleFrom(backgroundColor: Colors.orange), child: const Text("Áp dụng", style: TextStyle(color: Colors.white))),
+                    ],
+                  ),
+                  if (_discount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text("Đã giảm: -${Shoe.vndFormat.format(_discount)}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                    ),
+
+                  const SizedBox(height: 30),
+                  const Text("Phương thức thanh toán", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  RadioListTile<String>(title: const Text('Thanh toán khi nhận hàng (COD)'), value: 'cod', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
+                  RadioListTile<String>(title: const Text('Chuyển khoản ngân hàng'), value: 'bank', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
+                  RadioListTile<String>(title: const Text('Ví MoMo'), value: 'momo', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
+
+                  if (qrSection != null) ...[const SizedBox(height: 30), qrSection],
+
+                  const SizedBox(height: 30),
+                  const Text("Tóm tắt đơn hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  ...items.map((item) => _buildOrderItem(item)),
+
+                  const Divider(height: 40, thickness: 1),
+                  _buildPriceRow("Tạm tính", Shoe.vndFormat.format(subtotalVND)),
+                  _buildPriceRow("Phí vận chuyển", Shoe.vndFormat.format(shippingFee)),
+                  if (_discount > 0) _buildPriceRow("Giảm giá voucher", "-${Shoe.vndFormat.format(_discount)}", color: Colors.green),
+                  const Divider(thickness: 1),
+                  _buildPriceRow("Tổng thanh toán", Shoe.vndFormat.format(finalTotalVND), fontSize: 22, bold: true, color: Colors.orange),
+
+                  const SizedBox(height: 100),
                 ],
               ),
-              if (_discount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text("Đã giảm: -${Shoe.vndFormat.format(_discount)}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
+            ),
+          ),
 
-              const SizedBox(height: 30),
-              const Text("Phương thức thanh toán", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              RadioListTile<String>(title: const Text('Thanh toán khi nhận hàng (COD)'), value: 'cod', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
-              RadioListTile<String>(title: const Text('Chuyển khoản ngân hàng'), value: 'bank', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
-              RadioListTile<String>(title: const Text('Ví MoMo'), value: 'momo', groupValue: _selectedPayment, onChanged: (v) => setState(() => _selectedPayment = v!)),
-              // ĐÃ BỎ "Thẻ tín dụng / Ghi nợ" theo yêu cầu
-
-              if (qrSection != null) ...[const SizedBox(height: 30), qrSection],
-
-              const SizedBox(height: 30),
-              const Text("Tóm tắt đơn hàng", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              ...items.map((item) => _buildOrderItem(item)),
-
-              const Divider(height: 40, thickness: 1),
-              _buildPriceRow("Tạm tính", Shoe.vndFormat.format(subtotalVND)),
-              _buildPriceRow("Phí vận chuyển", Shoe.vndFormat.format(shippingFee)),
-              if (_discount > 0) _buildPriceRow("Giảm giá voucher", "-${Shoe.vndFormat.format(_discount)}", color: Colors.green),
-              const Divider(thickness: 1),
-              _buildPriceRow("Tổng thanh toán", Shoe.vndFormat.format(finalTotalVND), fontSize: 22, bold: true, color: Colors.orange),
-
-              const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
+              decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -5))]),
+              child: SizedBox(
                 height: 62,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), elevation: 8),
-                  onPressed: _placeOrder,
-                  child: Text(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    elevation: 10,
+                  ),
+                  onPressed: _isPlacingOrder ? null : _placeOrder,
+                  child: _isPlacingOrder
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
                     "ĐẶT HÀNG (${Shoe.vndFormat.format(finalTotalVND)})",
-                    style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -275,12 +374,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               children: [
                 Text(item.shoe.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 4),
-                Text("Size: ${item.shoe ?? 'Không có'}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                Text("Size: ${item.selectedSize}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                 Text("× ${item.quantity}", style: const TextStyle(color: Colors.grey)),
               ],
             ),
           ),
-          Text(Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(Shoe.vndFormat.format(item.totalPrice * Shoe.usdToVndRate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       ),
     );
@@ -300,7 +399,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 }
 
-// ==================== MÀN HÌNH BILL HOÀN CHỈNH ====================
+// ==================== ORDER BILL SCREEN (HOÀN CHỈNH & ĐẸP) ====================
 class OrderBillScreen extends StatelessWidget {
   final String orderId;
   final String name;
@@ -333,10 +432,14 @@ class OrderBillScreen extends StatelessWidget {
 
   String _getPaymentText() {
     switch (paymentMethod) {
-      case 'cod': return 'Thanh toán khi nhận hàng (COD)';
-      case 'bank': return 'Chuyển khoản ngân hàng (${selectedBank ?? ''})';
-      case 'momo': return 'Ví MoMo';
-      default: return 'Không xác định';
+      case 'cod':
+        return 'Thanh toán khi nhận hàng (COD)';
+      case 'bank':
+        return 'Chuyển khoản ngân hàng (${selectedBank ?? ''})';
+      case 'momo':
+        return 'Ví MoMo';
+      default:
+        return 'Không xác định';
     }
   }
 
@@ -357,7 +460,7 @@ class OrderBillScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header thành công + mã đơn
+            // Header thành công
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -401,7 +504,7 @@ class OrderBillScreen extends StatelessWidget {
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)]),
               child: Row(
                 children: [
-                  Hero(tag: item.shoe.id, child: ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 80, height: 80, fit: BoxFit.contain))),
+                  ClipRRect(borderRadius: BorderRadius.circular(12), child: CachedNetworkImage(imageUrl: item.shoe.image, width: 80, height: 80, fit: BoxFit.contain)),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -409,12 +512,12 @@ class OrderBillScreen extends StatelessWidget {
                       children: [
                         Text(item.shoe.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 6),
-                        Text("Size: ${item.shoe ?? 'Không có'}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                        Text("Size: ${item.selectedSize}", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                         Text("Số lượng: ${item.quantity}", style: const TextStyle(color: Colors.grey)),
                       ],
                     ),
                   ),
-                  Text(Shoe.vndFormat.format(item.shoe.priceInVND * item.quantity), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(Shoe.vndFormat.format(item.totalPrice * Shoe.usdToVndRate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
             )),
@@ -440,7 +543,6 @@ class OrderBillScreen extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () {
-                      // TODO: Chia sẻ đơn hàng (Share plugin)
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chức năng chia sẻ đang phát triển")));
                     },
                     child: const Text("CHIA SẺ ĐƠN HÀNG"),
@@ -449,7 +551,7 @@ class OrderBillScreen extends StatelessWidget {
                 const SizedBox(width: 16),
                 Expanded(
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C1C1C), padding: const EdgeInsets.symmetric(vertical: 16)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 16)),
                     onPressed: () => Navigator.popUntil(context, (route) => route.isFirst),
                     child: const Text("HOÀN TẤT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
@@ -475,3 +577,5 @@ class OrderBillScreen extends StatelessWidget {
     );
   }
 }
+
+// OrderBillScreen giữ nguyên như trước (bạn đã có)
