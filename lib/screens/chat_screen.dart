@@ -24,6 +24,9 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     ),
   ];
 
+  // Lưu size được tư vấn gần nhất
+  int? _lastRecommendedSize;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -58,10 +61,12 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     _scrollToBottom();
   }
 
-  // Xử lý tin nhắn dựa trên từ khóa (không cần dataset)
   Future<_BotResponse> _processMessage(String message) async {
-    final String normalized = message.toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s]'), '') // xóa dấu câu
+    String normalized = message.toLowerCase()
+        .replaceAll(RegExp(r'[^\w\s]'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+    // Bỏ dấu tiếng Việt
         .replaceAll('á', 'a').replaceAll('à', 'a').replaceAll('ả', 'a').replaceAll('ã', 'a').replaceAll('ạ', 'a')
         .replaceAll('ă', 'a').replaceAll('â', 'a')
         .replaceAll('é', 'e').replaceAll('è', 'e').replaceAll('ẻ', 'e').replaceAll('ẽ', 'e').replaceAll('ẹ', 'e')
@@ -77,76 +82,179 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     final List<Shoe> allShoes = await _getAllShoes();
 
     // 1. Tư vấn size theo chiều dài chân
-    final RegExp lengthReg = RegExp(r'(\d{2,3}(\.\d)?)\s*(cm|centimet)');
+    final RegExp lengthReg = RegExp(r'(chân|ban|toi|minh|chan toi)\s*(dài|dai)?\s*(\d{2,3}(\.\d)?)\s*(cm|centimet|sen|sem)');
     final Match? lengthMatch = lengthReg.firstMatch(normalized);
     if (lengthMatch != null) {
-      final double? lengthCm = double.tryParse(lengthMatch.group(1)!);
+      final double? lengthCm = double.tryParse(lengthMatch.group(3)!);
       if (lengthCm != null && lengthCm >= 20 && lengthCm <= 32) {
         final int recommendedSize = _getRecommendedSize(lengthCm);
-        final List<Shoe> shoes = allShoes.where((s) => s.sizes.contains(recommendedSize)).toList();
-        if (shoes.isEmpty) {
+        _lastRecommendedSize = recommendedSize;
+
+        final List<String> adviceVariants = [
+          "Chân bạn dài **$lengthCm cm** thì mang **size $recommendedSize** là chuẩn form nhất luôn ạ! 👟",
+          "Với chân **$lengthCm cm**, mình khuyên mang **size $recommendedSize** sẽ ôm chân đẹp nhất nhé!",
+          "**$lengthCm cm** → **size $recommendedSize** là perfect fit luôn ạ! 🔥",
+        ];
+        final String baseText = adviceVariants[DateTime.now().millisecond % adviceVariants.length];
+
+        // FIX: chuyển int → String
+        final List<Shoe> exactShoes = allShoes
+            .where((s) => s.sizes.contains(recommendedSize.toString()))
+            .toList();
+
+        if (exactShoes.isNotEmpty) {
           return _BotResponse(
-            text: "Chân bạn dài **$lengthCm cm** → nên mang **size $recommendedSize** là vừa chân nhất ạ! 👟\n\nRất tiếc hiện chưa có mẫu nào size này 😔\nBạn thử size ${recommendedSize - 1} hoặc ${recommendedSize + 1} nhé!",
+            text: "$baseText\n\nDưới đây là các mẫu đang có size $recommendedSize:",
+            shoes: exactShoes,
           );
         }
+
+        // Gợi ý size gần nhất (±1, ±2)
+        final Set<String> nearbySizes = {};
+        for (int i = 1; i <= 2; i++) {
+          nearbySizes.add((recommendedSize - i).toString());
+          nearbySizes.add((recommendedSize + i).toString());
+        }
+
+        final List<Shoe> nearbyShoes = allShoes
+            .where((s) => s.sizes.any((sz) => nearbySizes.contains(sz)))
+            .toList();
+
+        if (nearbyShoes.isNotEmpty) {
+          return _BotResponse(
+            text: "$baseText\n\n"
+                "Hiện chưa có mẫu nào đúng size $recommendedSize 😔\n"
+                "Nhưng nhiều khách đi size gần đó vẫn rất thoải mái! Đây là các mẫu có size ${recommendedSize - 1} - ${recommendedSize + 1}:",
+            shoes: nearbyShoes,
+          );
+        }
+
         return _BotResponse(
-          text: "Chân bạn dài **$lengthCm cm** → nên mang **size $recommendedSize** là vừa nhất ạ! 👟\n\nDưới đây là các mẫu hiện có size $recommendedSize:",
-          shoes: shoes,
+          text: "$baseText\n\n"
+              "Hiện shop mình đang có size từ 39-42 thôi ạ 😅\n"
+              "Bạn thử size 42 xem sao hoặc inbox mình đặt thêm size lớn hơn nhé!",
         );
       }
     }
 
     // 2. Hỏi size cụ thể
-    final RegExp sizeReg = RegExp(r'size\s*(\d{2})');
+    final RegExp sizeReg = RegExp(r'(size|sizes?|sz)\s*(\d{2})');
     final Match? sizeMatch = sizeReg.firstMatch(normalized);
     if (sizeMatch != null) {
-      final int? size = int.tryParse(sizeMatch.group(1)!);
-      if (size != null) {
-        final List<Shoe> shoes = allShoes.where((s) => s.sizes.contains(size)).toList();
+      final int? size = int.tryParse(sizeMatch.group(2)!);
+      if (size != null && size >= 35 && size <= 46) {
+        _lastRecommendedSize = size;
+
+        // FIX: chuyển int → String
+        final List<Shoe> shoes = allShoes
+            .where((s) => s.sizes.contains(size.toString()))
+            .toList();
+
         if (shoes.isEmpty) {
-          return _BotResponse(text: "Hiện tại chưa có mẫu nào size $size ạ 😔\nBạn muốn thử size ${size - 1} hoặc ${size + 1} không?");
+          // FIX: chuyển int → String cho size gần
+          final List<Shoe> alt = allShoes
+              .where((s) =>
+          s.sizes.contains((size - 1).toString()) ||
+              s.sizes.contains((size + 1).toString()))
+              .toList();
+
+          return _BotResponse(
+            text: "Hiện chưa có mẫu nào size **$size** ạ 😔\n"
+                "Nhưng đây là các mẫu size gần đó (${size - 1} hoặc ${size + 1}):",
+            shoes: alt,
+          );
         }
         return _BotResponse(text: "Tuyệt! Đây là các mẫu đang có **size $size**:", shoes: shoes);
       }
     }
 
-    // 3. Hỏi giá hoặc tên sản phẩm cụ thể
-    for (final Shoe shoe in allShoes) {
-      final String shoeNameNorm = shoe.name.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
-      if (normalized.contains(shoeNameNorm) || normalized.contains(shoeNameNorm.split(' ').first)) {
-        return _BotResponse(
-          text: "Đây là thông tin về **${shoe.name}**:\nGiá: **${shoe.priceVND}**\nCó sẵn size: ${shoe.sizesDisplay}",
-          shoes: [shoe],
-        );
-      }
-    }
-
-    // 4. Hỏi theo thương hiệu
-    final List<String> brands = ['nike', 'adidas', 'vans', 'puma', 'jordan'];
-    for (final String brand in brands) {
-      if (normalized.contains(brand)) {
-        final List<Shoe> shoes = allShoes.where((s) => s.name.toLowerCase().contains(brand)).toList();
+    // 3. Hỏi theo màu sắc
+    final Map<String, String> colorMap = {
+      'den': 'đen', 'trang': 'trắng', 'xam': 'xám', 'do': 'đỏ', 'xanh': 'xanh',
+      'hong': 'hồng', 'tim': 'tím', 'vang': 'vàng', 'nau': 'nâu',
+    };
+    for (final entry in colorMap.entries) {
+      if (normalized.contains(entry.key) || normalized.contains(entry.value)) {
+        final List<Shoe> shoes = allShoes.where((s) =>
+        s.name.toLowerCase().contains(entry.key) ||
+            s.name.toLowerCase().contains(entry.value)).toList();
         if (shoes.isNotEmpty) {
-          return _BotResponse(text: "Đây là các mẫu $brand hot nhất hiện tại:", shoes: shoes);
+          return _BotResponse(text: "Đây là các mẫu màu ${entry.value} hot nhất ạ:", shoes: shoes);
         }
       }
     }
 
-    // 5. Chính sách phổ biến
-    if (normalized.contains('cod') || normalized.contains('ship') || normalized.contains('giao hang')) {
-      return _BotResponse(text: "Có hỗ trợ thanh toán khi nhận hàng (COD) toàn quốc ạ!\nPhí ship: 30.000 ₫");
+    // 4. Low / High top
+    if (normalized.contains('low') || normalized.contains('cai thap') || normalized.contains('cổ thấp')) {
+      final shoes = allShoes.where((s) => s.name.toLowerCase().contains('low')).toList();
+      if (shoes.isNotEmpty) return _BotResponse(text: "Các mẫu low-top (cổ thấp) đây ạ:", shoes: shoes);
     }
-    if (normalized.contains('doi') || normalized.contains('tra') || normalized.contains('doi tra')) {
-      return _BotResponse(text: "Được đổi trả trong 30 ngày nếu lỗi nhà sản xuất hoặc không vừa size ạ!");
-    }
-    if (normalized.contains('giam gia') || normalized.contains('khuyen mai') || normalized.contains('voucher')) {
-      return _BotResponse(text: "Hiện có mã **SHOPEE10** giảm 100.000 ₫ và **FREESHIP** miễn phí vận chuyển ạ!");
+    if (normalized.contains('high') || normalized.contains('cai cao') || normalized.contains('cổ cao')) {
+      final shoes = allShoes.where((s) => s.name.toLowerCase().contains('high')).toList();
+      if (shoes.isNotEmpty) return _BotResponse(text: "Các mẫu high-top (cổ cao) đây ạ:", shoes: shoes);
     }
 
-    // Fallback
-    return _BotResponse(
-      text: "Rất tiếc mình chưa hiểu câu hỏi của bạn 😅\nBạn có thể hỏi:\n• Chân dài bao nhiêu cm thì mang size nào?\n• Size XX có giày nào không?\n• Giày Nike/Vans giá bao nhiêu?\n• Có COD không?",
-    );
+    // 5. Hỏi giá tiền
+    if (normalized.contains('gia') || normalized.contains('bao nhieu') || normalized.contains('price') || normalized.contains('tien')) {
+      for (final Shoe shoe in allShoes) {
+        final String shoeNameNorm = shoe.name.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), ' ');
+        if (normalized.contains(shoeNameNorm.split(' ').first) ||
+            normalized.contains(shoeNameNorm.split(' ').sublist(0, 2).join(' '))) {
+          return _BotResponse(
+            text: "**${shoe.name}** giá chỉ **${shoe.priceVND}** thôi ạ!\nSize còn: ${shoe.sizesDisplay}",
+            shoes: [shoe],
+          );
+        }
+      }
+      final hot = allShoes.take(5).toList();
+      return _BotResponse(text: "Bạn muốn biết giá mẫu nào ạ? Đây là vài mẫu đang hot:", shoes: hot);
+    }
+
+    // 6. Thương hiệu
+    final Map<String, List<String>> brandKeywords = {
+      'nike': ['nike', 'nk'],
+      'adidas': ['adidas', 'adi', 'add'],
+      'vans': ['vans', 'van'],
+      'puma': ['puma'],
+      'jordan': ['jordan', 'jd', 'air jordan'],
+      'converse': ['converse', 'cv', 'conver'],
+      'new balance': ['new balance', 'nb'],
+    };
+
+    for (final entry in brandKeywords.entries) {
+      for (final kw in entry.value) {
+        if (normalized.contains(kw)) {
+          final List<Shoe> shoes = allShoes
+              .where((s) => s.name.toLowerCase().contains(entry.key.split(' ').first))
+              .toList();
+          if (shoes.isNotEmpty) {
+            return _BotResponse(text: "Các mẫu ${entry.key.toUpperCase()} đang có đây ạ:", shoes: shoes);
+          }
+        }
+      }
+    }
+
+    // 7. Chính sách
+    if (normalized.contains('cod') || normalized.contains('thanh toan khi nhan')) {
+      return _BotResponse(text: "Có hỗ trợ **COD toàn quốc** nhé! Thanh toán khi nhận hàng thoải mái ạ 🚚");
+    }
+    if (normalized.contains('doi') || normalized.contains('tra') || normalized.contains('doi size')) {
+      return _BotResponse(text: "Được **đổi trả miễn phí trong 30 ngày** nếu lỗi hoặc không vừa size ạ!");
+    }
+    if (normalized.contains('ship') || normalized.contains('phi ship')) {
+      return _BotResponse(text: "Phí ship chỉ **30k** toàn quốc, có mã **FREESHIP** nữa nha!");
+    }
+
+    // 8. Fallback
+    String fallback = "Mình chưa hiểu lắm câu hỏi của bạn 😅\n";
+    if (_lastRecommendedSize != null) {
+      fallback += "Bạn đang tìm giày size $_lastRecommendedSize phải không ạ? Hoặc hỏi mình về:\n";
+    } else {
+      fallback += "Bạn có thể hỏi mình kiểu như:\n";
+    }
+    fallback += "• Chân dài bao nhiêu cm?\n• Size 42 có mẫu nào?\n• Giày Nike đen giá bn?\n• Có COD không ạ?";
+
+    return _BotResponse(text: fallback);
   }
 
   int _getRecommendedSize(double lengthCm) {
@@ -217,7 +325,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
   }
 }
 
-// Helper classes
+// Các class hỗ trợ (giữ nguyên)
 class _BotResponse {
   final String text;
   final List<Shoe> shoes;
@@ -238,10 +346,8 @@ class _ChatMessage {
   });
 }
 
-// Card sản phẩm – bấm vào chuyển sang DetailScreen
 class _ProductCard extends StatelessWidget {
   final Shoe shoe;
-
   const _ProductCard({required this.shoe});
 
   @override
@@ -298,11 +404,9 @@ class _ProductCard extends StatelessWidget {
   }
 }
 
-// Bubble tin nhắn
 class _Bubble extends StatelessWidget {
   final String text;
   final bool isUser;
-
   const _Bubble({required this.text, required this.isUser});
 
   @override
@@ -335,11 +439,9 @@ class _Bubble extends StatelessWidget {
   }
 }
 
-// Thanh nhập tin nhắn
 class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
-
   const _InputBar({required this.controller, required this.onSend});
 
   @override
